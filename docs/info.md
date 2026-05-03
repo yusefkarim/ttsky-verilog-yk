@@ -1,5 +1,3 @@
-<!---
-
 This file is used to generate your project datasheet. Please fill in the information below and delete any unused
 sections.
 
@@ -9,12 +7,15 @@ You can also include images in this folder and reference them in the markdown. E
 
 ## How it works
 
-Explain how your project works
+You know how it works better than me probably.
 
 ## How to test
 
-Explain how to use your project
+[Go to vga-playground](https://vga-playground.com/?preset=logo
+). Using the logo preset.
+
+Locally, take a PNG image, and use `pngtoveri.py` (at the root of this repo) to convert a PNG to the bitmap verilog (`bitmap_rom.v`). Copy the output into vga-playground to see your logo.
 
 ## External hardware
 
-List external hardware used in your project (e.g. PMOD, LED display, etc), if any
+VGA, virtually tested using VGA playground
