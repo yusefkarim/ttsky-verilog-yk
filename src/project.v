@@ -112,16 +112,20 @@ module tt_um_vga_yusefkarim (
                         dy0[9:5], dy1[9:5], dy2[9:5],
                         dxc[9:5], dyc[9:5]};
 
-  // ROM read addresses: ports 0..2 carry the per-message band offset
-  // (msg_id * 32); port 3 carries the chip band (band 3 = y[6:5]==2'b11)
-  // and uses chip_frame as the high x bits to slot-select among the 4
-  // 32-wide rotation frames laid out side by side.
+  // Three text bands stacked in bitmap_rom; band offset = msg_id * 32 in
+  // the high y bits.  Chip lives in its own small ROM (see below) so the
+  // main bitmap_rom only needs three ports and a 1.5 KB data array.
   wire pixel0_raw, pixel1_raw, pixel2_raw, chip_pixel;
   bitmap_rom rom (
-      .x0(lx0), .y0({2'd0, ly0}),                .pixel0(pixel0_raw),
-      .x1(lx1), .y1({2'd1, ly1}),                .pixel1(pixel1_raw),
-      .x2(lx2), .y2({2'd2, ly2}),                .pixel2(pixel2_raw),
-      .x3({chip_frame, lxc}), .y3({2'b11, lyc}), .pixel3(chip_pixel)
+      .x0(lx0), .y0({2'd0, ly0}), .pixel0(pixel0_raw),
+      .x1(lx1), .y1({2'd1, ly1}), .pixel1(pixel1_raw),
+      .x2(lx2), .y2({2'd2, ly2}), .pixel2(pixel2_raw)
+  );
+
+  // Chip ROM holds the 4 spinning-coin frames packed side by side; the
+  // current frame index is the high x bits.
+  chip_rom chip (
+      .x0({chip_frame, lxc}), .y0(lyc), .pixel0(chip_pixel)
   );
 
   wire text0 = in0 & pixel0_raw;
