@@ -351,19 +351,19 @@ module chip_rom (
   always @* begin
     case (f)
       2'd0: begin
-        addr   = {2'b00, 1'b0, y0, x[4:3]};
+        addr   = {1'b0, y0, x[4:3]};            // 0..127
         bitsel = x[2:0];
       end
       2'd1: begin
-        addr   = {2'b00, 1'b1, y0, x[4:3]};
+        addr   = {1'b1, y0, x[4:3]};            // 128..255
         bitsel = x[2:0];
       end
       2'd2: begin
-        addr   = {3'b100, y0, xfold2[3]};
+        addr   = {1'b1, 2'b00, y0, xfold2[3]};  // 256..319
         bitsel = xfold2[2:0];
       end
       default: begin // f == 3: hflip(frame 1)
-        addr   = {2'b00, 1'b1, y0, xflip[4:3]};
+        addr   = {1'b1, y0, xflip[4:3]};        // 128..255
         bitsel = xflip[2:0];
       end
     endcase
