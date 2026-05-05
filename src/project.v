@@ -67,8 +67,7 @@ module tt_um_vga_yusefkarim (
   reg       dir_y0, dir_y1, dir_y2;
   reg [2:0] color0, color1, color2;
 
-  reg [9:0] prev_y;
-  reg [7:0] frame_counter;
+  reg [5:0] frame_counter;
 
   // ---------------------------------------------------------------
   // Per-pixel: bbox tests, ROM lookups, composition
@@ -152,7 +151,7 @@ module tt_um_vga_yusefkarim (
       in0     ? color0             :
       in1     ? color1             :
       in2     ? color2             :
-                frame_counter[7:5];
+                frame_counter[5:3];
 
   wire [5:0] color_active;
   palette pal (.color_index(color_idx_active), .rrggbb(color_active));
@@ -192,15 +191,14 @@ module tt_um_vga_yusefkarim (
   end
 
   // ---------------------------------------------------------------
-  // Once-per-frame tick: rising edge of pix_y == 0 (top of frame).
-  // Update all three bouncers and the strobe counter.
+  // Once-per-frame tick: first pixel of the top scanline. Fires
+  // exactly once per frame, no edge-detect register needed.
   // ---------------------------------------------------------------
-  wire frame_tick = (pix_y == 0) && (prev_y != pix_y);
+  wire frame_tick = (pix_x == 10'd0) && (pix_y == 10'd0);
 
   always @(posedge clk) begin
     if (~rst_n) begin
-      prev_y        <= 10'd0;
-      frame_counter <= 8'd0;
+      frame_counter <= 6'd0;
 
       pos_x0 <= 10'd40;  pos_y0 <= 10'd60;
       dir_x0 <= 1'b1;    dir_y0 <= 1'b1;   color0 <= 3'd0;
@@ -211,7 +209,6 @@ module tt_um_vga_yusefkarim (
       pos_x2 <= 10'd180; pos_y2 <= 10'd360;
       dir_x2 <= 1'b1;    dir_y2 <= 1'b0;   color2 <= 3'd5;
     end else begin
-      prev_y <= pix_y;
       if (frame_tick) begin
         frame_counter <= frame_counter + 1'b1;
 
