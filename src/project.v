@@ -15,7 +15,6 @@ parameter DISPLAY_WIDTH  = 640;
 parameter DISPLAY_HEIGHT = 480;
 parameter MSG_W          = 128;
 parameter MSG_H          = 32;
-parameter CHIP_SIZE      = 32;
 parameter CHIP_X         = 304;  // centered: (640 - 32) / 2
 parameter CHIP_Y         = 224;  // centered: (480 - 32) / 2
 
@@ -73,33 +72,35 @@ module tt_um_vga_yusefkarim (
 
   // ---------------------------------------------------------------
   // Per-pixel: bbox tests, ROM lookups, composition
+  //
+  // bbox tests piggy-back on the dx/dy subtractors used for ROM
+  // addressing.  Since MSG_W = 128 = 2^7 and MSG_H = 32 = 2^5, a pixel
+  // is inside the sprite iff dx[9:7] == 0 && dy[9:5] == 0 (any wrap of
+  // the unsigned subtract makes the upper bits non-zero).  This drops
+  // the four-comparator-per-bbox cost down to a couple of OR gates.
   // ---------------------------------------------------------------
-  wire in0 = (pix_x >= pos_x0) && (pix_x < pos_x0 + MSG_W) &&
-             (pix_y >= pos_y0) && (pix_y < pos_y0 + MSG_H);
-  wire in1 = (pix_x >= pos_x1) && (pix_x < pos_x1 + MSG_W) &&
-             (pix_y >= pos_y1) && (pix_y < pos_y1 + MSG_H);
-  wire in2 = (pix_x >= pos_x2) && (pix_x < pos_x2 + MSG_W) &&
-             (pix_y >= pos_y2) && (pix_y < pos_y2 + MSG_H);
-
-  // Local coords (only meaningful when in_boxN is true, where the
-  // difference is guaranteed to fit in MSG_W / MSG_H).
   wire [9:0] dx0 = pix_x - pos_x0;
   wire [9:0] dx1 = pix_x - pos_x1;
   wire [9:0] dx2 = pix_x - pos_x2;
   wire [9:0] dy0 = pix_y - pos_y0;
   wire [9:0] dy1 = pix_y - pos_y1;
   wire [9:0] dy2 = pix_y - pos_y2;
+
+  wire in0 = (dx0[9:7] == 3'd0) && (dy0[9:5] == 5'd0);
+  wire in1 = (dx1[9:7] == 3'd0) && (dy1[9:5] == 5'd0);
+  wire in2 = (dx2[9:7] == 3'd0) && (dy2[9:5] == 5'd0);
+
   wire [6:0] lx0 = dx0[6:0];
   wire [6:0] lx1 = dx1[6:0];
   wire [6:0] lx2 = dx2[6:0];
   wire [4:0] ly0 = dy0[4:0];
   wire [4:0] ly1 = dy1[4:0];
   wire [4:0] ly2 = dy2[4:0];
-  // Chip sprite (32x32) anchored at (CHIP_X, CHIP_Y).
-  wire in_chip = (pix_x >= CHIP_X) && (pix_x < CHIP_X + CHIP_SIZE) &&
-                 (pix_y >= CHIP_Y) && (pix_y < CHIP_Y + CHIP_SIZE);
+
+  // Chip sprite (32x32) anchored at (CHIP_X, CHIP_Y); same bbox trick.
   wire [9:0] dxc = pix_x - CHIP_X;
   wire [9:0] dyc = pix_y - CHIP_Y;
+  wire in_chip = (dxc[9:5] == 5'd0) && (dyc[9:5] == 5'd0);
   wire [4:0] lxc = dxc[4:0];
   wire [4:0] lyc = dyc[4:0];
 
@@ -107,10 +108,6 @@ module tt_um_vga_yusefkarim (
   // visibly spins.  bits[3:2] = advance every 4 frames, full cycle ~16
   // frames (~270 ms at 60 Hz).
   wire [1:0] chip_frame = frame_counter[3:2];
-
-  wire _unused_dxdy = &{dx0[9:7], dx1[9:7], dx2[9:7],
-                        dy0[9:5], dy1[9:5], dy2[9:5],
-                        dxc[9:5], dyc[9:5]};
 
   // Three text bands stacked in bitmap_rom; band offset = msg_id * 32 in
   // the high y bits.  Chip lives in its own small ROM (see below) so the
@@ -137,43 +134,45 @@ module tt_um_vga_yusefkarim (
   wire collide      = overlap[1];   // 2 or 3 boxes overlap
   wire text_xor     = text0 ^ text1 ^ text2;
 
-  // Per-bouncer palette colour (used when only that bouncer's bbox covers
-  // this pixel).
-  wire [5:0] color0_rgb, color1_rgb, color2_rgb, strobe_rgb, chip_rgb;
-  palette pal0    (.color_index(color0),                .rrggbb(color0_rgb));
-  palette pal1    (.color_index(color1),                .rrggbb(color1_rgb));
-  palette pal2    (.color_index(color2),                .rrggbb(color2_rgb));
-  palette palstr  (.color_index(frame_counter[5:3]),    .rrggbb(strobe_rgb));
-  // Chip cycles colour slowly so the spin reads even on the edge-on frame.
-  palette palchip (.color_index(frame_counter[7:5]),    .rrggbb(chip_rgb));
-
-  // Pick the active solo colour; only one of in0/in1/in2 is set when not
-  // colliding.
-  wire [5:0] solo_rgb = ({6{in0}} & color0_rgb)
-                      | ({6{in1}} & color1_rgb)
-                      | ({6{in2}} & color2_rgb);
-  wire       solo_text = text0 | text1 | text2;
-
-  // Dim halo: bright strobe colour halved per channel for the overlap
-  // background so the collision rectangle visibly glows.
-  wire [5:0] halo_rgb = {1'b0, strobe_rgb[5],
-                         1'b0, strobe_rgb[3],
-                         1'b0, strobe_rgb[1]};
-
+  wire solo_text = text0 | text1 | text2;
   // Chip renders behind the bouncing text: a bouncer's bbox always wins,
   // so the chip is visible only in pixels no bouncer covers.
   wire chip_show = in_chip & chip_pixel;
+
+  // Single shared palette: priority-mux the colour index to the one we
+  // actually need this pixel.  Saves four palette instances vs. looking
+  // up every potential colour and muxing the 6-bit results.
+  //
+  // Priority mirrors the pix_rgb composition below:
+  //   collide  -> strobe (frame_counter[5:3])
+  //   in_i     -> that bouncer's color (only one in_i is high when !collide)
+  //   else     -> chip palette index (used iff chip_show)
+  wire [2:0] color_idx_active =
+      collide ? frame_counter[5:3] :
+      in0     ? color0             :
+      in1     ? color1             :
+      in2     ? color2             :
+                frame_counter[7:5];
+
+  wire [5:0] color_active;
+  palette pal (.color_index(color_idx_active), .rrggbb(color_active));
+
+  // Dim halo: shared palette output halved per channel.  Free in HDL
+  // (just a wire reshuffle) so it stays.
+  wire [5:0] halo_color = {1'b0, color_active[5],
+                           1'b0, color_active[3],
+                           1'b0, color_active[1]};
 
   reg [5:0] pix_rgb;
   always @* begin
     if (!video_active) begin
       pix_rgb = 6'b0;
     end else if (collide) begin
-      pix_rgb = text_xor ? strobe_rgb : halo_rgb;
+      pix_rgb = text_xor ? color_active : halo_color;
     end else if (overlap[0]) begin
-      pix_rgb = solo_text ? solo_rgb : 6'b0;
+      pix_rgb = solo_text ? color_active : 6'b0;
     end else if (chip_show) begin
-      pix_rgb = chip_rgb;
+      pix_rgb = color_active;
     end else begin
       pix_rgb = 6'b0;
     end
