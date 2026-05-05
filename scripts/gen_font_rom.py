@@ -108,14 +108,15 @@ def main() -> None:
 
     glyphs = render_glyphs(chars)
 
-    # font_rom: 32 chars x 16 rows x 1 byte = 512 bytes max.
-    # Pack indexed by {char_idx[4:0], row[3:0]} = 9 bits.
-    # Only emit entries we use; rest are 0.
-    NCHARS = 32
-    font_data = [0] * (NCHARS * CHAR_H)
-    for idx, rows in enumerate(glyphs):
-        for r, byte in enumerate(rows):
-            font_data[idx * CHAR_H + r] = byte
+    # font_rom: NCHARS chars x 16 rows x 1 byte. Sized to exactly the
+    # glyphs we use so the synthesizer doesn't carry dead char slots.
+    # Address = (char_idx * 16) + row, computed in HW via concat of the
+    # 5-bit ci and 4-bit row when NCHARS == 32, or as a 9-bit add otherwise.
+    NCHARS = len(glyphs)
+    font_data = []
+    for rows in glyphs:
+        font_data.extend(rows)
+    assert len(font_data) == NCHARS * CHAR_H
 
     # msg_rom: 3 messages x 16 chars x 5-bit char index. Pack as 8-bit
     # entries indexed by {msg_id[1:0], char_x[3:0]} = 6 bits = 64 bytes.
@@ -152,7 +153,11 @@ def main() -> None:
         ");",
         "",
         f"  // Font ROM: {NCHARS} glyphs x {CHAR_H} rows = {NCHARS * CHAR_H} bytes.",
-        f"  reg [7:0] font [0:{NCHARS * CHAR_H - 1}];",
+        f"  // Declared at the full 5-bit char-index range so {{ci, y}} is a",
+        f"  // valid 9-bit address; entries past the last used glyph are",
+        f"  // intentionally left uninitialized so the synthesizer treats them",
+        f"  // as don't-cares and can prune the dead char slots.",
+        f"  reg [7:0] font [0:{32 * CHAR_H - 1}];",
         f"  // Message ROM: 3 messages x {COLS} chars (5-bit char index per cell).",
         f"  reg [4:0] msgs [0:{3 * COLS - 1}];",
         "",
