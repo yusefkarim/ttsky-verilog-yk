@@ -14,7 +14,8 @@
 parameter DISPLAY_WIDTH  = 640;
 parameter DISPLAY_HEIGHT = 480;
 parameter MSG_W          = 128;
-parameter MSG_H          = 32;
+parameter MSG_H_SHORT    = 16;   // bouncers 0 and 1
+parameter MSG_H_TALL     = 32;   // bouncer 2 (riscvottawa.ca, kept readable)
 parameter CHIP_X         = 304;  // centered: (640 - 32) / 2
 parameter CHIP_Y         = 224;  // centered: (480 - 32) / 2
 
@@ -72,11 +73,9 @@ module tt_um_vga_yusefkarim (
   // ---------------------------------------------------------------
   // Per-pixel: bbox tests, ROM lookups, composition
   //
-  // bbox tests piggy-back on the dx/dy subtractors used for ROM
-  // addressing.  Since MSG_W = 128 = 2^7 and MSG_H = 32 = 2^5, a pixel
-  // is inside the sprite iff dx[9:7] == 0 && dy[9:5] == 0 (any wrap of
-  // the unsigned subtract makes the upper bits non-zero).  This drops
-  // the four-comparator-per-bbox cost down to a couple of OR gates.
+  // MSG_W = 128 = 2^7, so dx[9:7] == 0 means inside horizontally.
+  // Bouncers 0 and 1 are 16 px tall (dy[9:4] == 0); bouncer 2 is
+  // 32 px tall (dy[9:5] == 0).
   // ---------------------------------------------------------------
   wire [9:0] dx0 = pix_x - pos_x0;
   wire [9:0] dx1 = pix_x - pos_x1;
@@ -85,15 +84,15 @@ module tt_um_vga_yusefkarim (
   wire [9:0] dy1 = pix_y - pos_y1;
   wire [9:0] dy2 = pix_y - pos_y2;
 
-  wire in0 = (dx0[9:7] == 3'd0) && (dy0[9:5] == 5'd0);
-  wire in1 = (dx1[9:7] == 3'd0) && (dy1[9:5] == 5'd0);
+  wire in0 = (dx0[9:7] == 3'd0) && (dy0[9:4] == 6'd0);
+  wire in1 = (dx1[9:7] == 3'd0) && (dy1[9:4] == 6'd0);
   wire in2 = (dx2[9:7] == 3'd0) && (dy2[9:5] == 5'd0);
 
   wire [6:0] lx0 = dx0[6:0];
   wire [6:0] lx1 = dx1[6:0];
   wire [6:0] lx2 = dx2[6:0];
-  wire [4:0] ly0 = dy0[4:0];
-  wire [4:0] ly1 = dy1[4:0];
+  wire [3:0] ly0 = dy0[3:0];
+  wire [3:0] ly1 = dy1[3:0];
   wire [4:0] ly2 = dy2[4:0];
 
   // Chip sprite (32x32) anchored at (CHIP_X, CHIP_Y); same bbox trick.
@@ -108,14 +107,15 @@ module tt_um_vga_yusefkarim (
   // frames (~270 ms at 60 Hz).
   wire [1:0] chip_frame = frame_counter[3:2];
 
-  // Three text bands stacked in bitmap_rom; band offset = msg_id * 32 in
-  // the high y bits.  Chip lives in its own small ROM (see below) so the
-  // main bitmap_rom only needs three ports and a 1.5 KB data array.
+  // Three text bands stacked in bitmap_rom (1024 B total):
+  //   y in [ 0..15] : band 0 ('RISC-V Ottawa', 16 px tall)
+  //   y in [16..31] : band 1 ('Join us!',      16 px tall)
+  //   y in [32..63] : band 2 ('riscvottawa.ca', 32 px tall)
   wire pixel0_raw, pixel1_raw, pixel2_raw, chip_pixel;
   bitmap_rom rom (
-      .x0(lx0), .y0({2'd0, ly0}), .pixel0(pixel0_raw),
-      .x1(lx1), .y1({2'd1, ly1}), .pixel1(pixel1_raw),
-      .x2(lx2), .y2({2'd2, ly2}), .pixel2(pixel2_raw)
+      .x0(lx0), .y0({2'b00, ly0}),     .pixel0(pixel0_raw),
+      .x1(lx1), .y1({2'b01, ly1}),     .pixel1(pixel1_raw),
+      .x2(lx2), .y2({1'b1,  ly2}),     .pixel2(pixel2_raw)
   );
 
   // Chip ROM holds the 4 spinning-coin frames packed side by side; the
@@ -212,29 +212,29 @@ module tt_um_vga_yusefkarim (
       if (frame_tick) begin
         frame_counter <= frame_counter + 1'b1;
 
-        // Bouncer 0
+        // Bouncer 0 (16 px tall)
         pos_x0 <= pos_x0 + (dir_x0 ? 10'd1 : -10'd1);
         pos_y0 <= pos_y0 + (dir_y0 ? 10'd1 : -10'd1);
         if (pos_x0 == 10'd1            && !dir_x0) begin dir_x0 <= 1'b1; color0 <= color0 + 1'b1; end
-        if (pos_x0 == DISPLAY_WIDTH  - MSG_W - 10'd1 && dir_x0) begin dir_x0 <= 1'b0; color0 <= color0 + 1'b1; end
+        if (pos_x0 == DISPLAY_WIDTH  - MSG_W       - 10'd1 && dir_x0) begin dir_x0 <= 1'b0; color0 <= color0 + 1'b1; end
         if (pos_y0 == 10'd1            && !dir_y0) begin dir_y0 <= 1'b1; color0 <= color0 + 1'b1; end
-        if (pos_y0 == DISPLAY_HEIGHT - MSG_H - 10'd1 && dir_y0) begin dir_y0 <= 1'b0; color0 <= color0 + 1'b1; end
+        if (pos_y0 == DISPLAY_HEIGHT - MSG_H_SHORT - 10'd1 && dir_y0) begin dir_y0 <= 1'b0; color0 <= color0 + 1'b1; end
 
-        // Bouncer 1
+        // Bouncer 1 (16 px tall)
         pos_x1 <= pos_x1 + (dir_x1 ? 10'd1 : -10'd1);
         pos_y1 <= pos_y1 + (dir_y1 ? 10'd1 : -10'd1);
         if (pos_x1 == 10'd1            && !dir_x1) begin dir_x1 <= 1'b1; color1 <= color1 + 1'b1; end
-        if (pos_x1 == DISPLAY_WIDTH  - MSG_W - 10'd1 && dir_x1) begin dir_x1 <= 1'b0; color1 <= color1 + 1'b1; end
+        if (pos_x1 == DISPLAY_WIDTH  - MSG_W       - 10'd1 && dir_x1) begin dir_x1 <= 1'b0; color1 <= color1 + 1'b1; end
         if (pos_y1 == 10'd1            && !dir_y1) begin dir_y1 <= 1'b1; color1 <= color1 + 1'b1; end
-        if (pos_y1 == DISPLAY_HEIGHT - MSG_H - 10'd1 && dir_y1) begin dir_y1 <= 1'b0; color1 <= color1 + 1'b1; end
+        if (pos_y1 == DISPLAY_HEIGHT - MSG_H_SHORT - 10'd1 && dir_y1) begin dir_y1 <= 1'b0; color1 <= color1 + 1'b1; end
 
-        // Bouncer 2
+        // Bouncer 2 (32 px tall, full-height URL)
         pos_x2 <= pos_x2 + (dir_x2 ? 10'd1 : -10'd1);
         pos_y2 <= pos_y2 + (dir_y2 ? 10'd1 : -10'd1);
         if (pos_x2 == 10'd1            && !dir_x2) begin dir_x2 <= 1'b1; color2 <= color2 + 1'b1; end
-        if (pos_x2 == DISPLAY_WIDTH  - MSG_W - 10'd1 && dir_x2) begin dir_x2 <= 1'b0; color2 <= color2 + 1'b1; end
+        if (pos_x2 == DISPLAY_WIDTH  - MSG_W       - 10'd1 && dir_x2) begin dir_x2 <= 1'b0; color2 <= color2 + 1'b1; end
         if (pos_y2 == 10'd1            && !dir_y2) begin dir_y2 <= 1'b1; color2 <= color2 + 1'b1; end
-        if (pos_y2 == DISPLAY_HEIGHT - MSG_H - 10'd1 && dir_y2) begin dir_y2 <= 1'b0; color2 <= color2 + 1'b1; end
+        if (pos_y2 == DISPLAY_HEIGHT - MSG_H_TALL  - 10'd1 && dir_y2) begin dir_y2 <= 1'b0; color2 <= color2 + 1'b1; end
       end
     end
   end
