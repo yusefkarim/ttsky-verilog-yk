@@ -11,10 +11,8 @@
 
 `default_nettype none
 
-parameter DISPLAY_WIDTH  = 640;
-parameter DISPLAY_HEIGHT = 480;
-parameter MSG_W          = 128;
-parameter MSG_H          = 16;   // 8x16 char grid: 16 px tall, 16 chars across
+// VGA frame is 640x480; sprites are 128 px wide bouncing-text bands of
+// 16 px tall (a 16-char x 16-row grid) and a 32x32 chip in the centre.
 parameter CHIP_X         = 304;  // centered: (640 - 32) / 2
 parameter CHIP_Y         = 224;  // centered: (480 - 32) / 2
 
@@ -67,7 +65,13 @@ module tt_um_vga_yusefkarim (
   reg [8:0] pos_y0, pos_y1, pos_y2;
   reg       dir_x0, dir_x1, dir_x2;
   reg       dir_y0, dir_y1, dir_y2;
-  reg [2:0] color0, color1, color2;
+  // Bouncer colours track position: as a sprite moves across the
+  // frame, the upper bits of pos_x walk through palette indices, so
+  // each crossing of a 64-pixel band shifts the colour. A constant
+  // XOR per bouncer staggers their starting colours.
+  wire [2:0] color0 = pos_x0[8:6] ^ 3'd0;
+  wire [2:0] color1 = pos_x1[8:6] ^ 3'd2;
+  wire [2:0] color2 = pos_x2[8:6] ^ 3'd5;
 
   reg [5:0] frame_counter;
 
@@ -200,13 +204,13 @@ module tt_um_vga_yusefkarim (
       frame_counter <= 6'd0;
 
       pos_x0 <= 9'd40;  pos_y0 <= 9'd60;
-      dir_x0 <= 1'b1;   dir_y0 <= 1'b1;   color0 <= 3'd0;
+      dir_x0 <= 1'b1;   dir_y0 <= 1'b1;
 
       pos_x1 <= 9'd300; pos_y1 <= 9'd180;
-      dir_x1 <= 1'b0;   dir_y1 <= 1'b1;   color1 <= 3'd2;
+      dir_x1 <= 1'b0;   dir_y1 <= 1'b1;
 
       pos_x2 <= 9'd180; pos_y2 <= 9'd360;
-      dir_x2 <= 1'b1;   dir_y2 <= 1'b0;   color2 <= 3'd5;
+      dir_x2 <= 1'b1;   dir_y2 <= 1'b0;
     end else begin
       if (frame_tick) begin
         frame_counter <= frame_counter + 1'b1;
@@ -214,26 +218,26 @@ module tt_um_vga_yusefkarim (
         // Bouncer 0
         pos_x0 <= pos_x0 + (dir_x0 ? 9'd1 : -9'd1);
         pos_y0 <= pos_y0 + (dir_y0 ? 9'd1 : -9'd1);
-        if (pos_x0 == 9'd1   && !dir_x0) begin dir_x0 <= 1'b1; color0 <= color0 + 1'b1; end
-        if (pos_x0 == 9'd511 &&  dir_x0) begin dir_x0 <= 1'b0; color0 <= color0 + 1'b1; end
-        if (pos_y0 == 9'd1   && !dir_y0) begin dir_y0 <= 1'b1; color0 <= color0 + 1'b1; end
-        if (pos_y0 == 9'd463 &&  dir_y0) begin dir_y0 <= 1'b0; color0 <= color0 + 1'b1; end
+        if (pos_x0 == 9'd1   && !dir_x0) begin dir_x0 <= 1'b1; end
+        if (pos_x0 == 9'd511 &&  dir_x0) begin dir_x0 <= 1'b0; end
+        if (pos_y0 == 9'd1   && !dir_y0) begin dir_y0 <= 1'b1; end
+        if (pos_y0 == 9'd463 &&  dir_y0) begin dir_y0 <= 1'b0; end
 
         // Bouncer 1
         pos_x1 <= pos_x1 + (dir_x1 ? 9'd1 : -9'd1);
         pos_y1 <= pos_y1 + (dir_y1 ? 9'd1 : -9'd1);
-        if (pos_x1 == 9'd1   && !dir_x1) begin dir_x1 <= 1'b1; color1 <= color1 + 1'b1; end
-        if (pos_x1 == 9'd511 &&  dir_x1) begin dir_x1 <= 1'b0; color1 <= color1 + 1'b1; end
-        if (pos_y1 == 9'd1   && !dir_y1) begin dir_y1 <= 1'b1; color1 <= color1 + 1'b1; end
-        if (pos_y1 == 9'd463 &&  dir_y1) begin dir_y1 <= 1'b0; color1 <= color1 + 1'b1; end
+        if (pos_x1 == 9'd1   && !dir_x1) begin dir_x1 <= 1'b1; end
+        if (pos_x1 == 9'd511 &&  dir_x1) begin dir_x1 <= 1'b0; end
+        if (pos_y1 == 9'd1   && !dir_y1) begin dir_y1 <= 1'b1; end
+        if (pos_y1 == 9'd463 &&  dir_y1) begin dir_y1 <= 1'b0; end
 
         // Bouncer 2
         pos_x2 <= pos_x2 + (dir_x2 ? 9'd1 : -9'd1);
         pos_y2 <= pos_y2 + (dir_y2 ? 9'd1 : -9'd1);
-        if (pos_x2 == 9'd1   && !dir_x2) begin dir_x2 <= 1'b1; color2 <= color2 + 1'b1; end
-        if (pos_x2 == 9'd511 &&  dir_x2) begin dir_x2 <= 1'b0; color2 <= color2 + 1'b1; end
-        if (pos_y2 == 9'd1   && !dir_y2) begin dir_y2 <= 1'b1; color2 <= color2 + 1'b1; end
-        if (pos_y2 == 9'd463 &&  dir_y2) begin dir_y2 <= 1'b0; color2 <= color2 + 1'b1; end
+        if (pos_x2 == 9'd1   && !dir_x2) begin dir_x2 <= 1'b1; end
+        if (pos_x2 == 9'd511 &&  dir_x2) begin dir_x2 <= 1'b0; end
+        if (pos_y2 == 9'd1   && !dir_y2) begin dir_y2 <= 1'b1; end
+        if (pos_y2 == 9'd463 &&  dir_y2) begin dir_y2 <= 1'b0; end
       end
     end
   end
