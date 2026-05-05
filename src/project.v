@@ -61,8 +61,10 @@ module tt_um_vga_yusefkarim (
   // Three bouncer state vectors. The ROM port index implicitly
   // selects which message a bouncer renders (port i reads message i).
   // ---------------------------------------------------------------
-  reg [9:0] pos_x0, pos_x1, pos_x2;
-  reg [9:0] pos_y0, pos_y1, pos_y2;
+  // Positions are bounded to 1..(DISPLAY-MSG-1), which fits in 9 bits
+  // for both X (max 511) and Y (max 463).
+  reg [8:0] pos_x0, pos_x1, pos_x2;
+  reg [8:0] pos_y0, pos_y1, pos_y2;
   reg       dir_x0, dir_x1, dir_x2;
   reg       dir_y0, dir_y1, dir_y2;
   reg [2:0] color0, color1, color2;
@@ -75,12 +77,12 @@ module tt_um_vga_yusefkarim (
   // MSG_W = 128 = 2^7, MSG_H = 16 = 2^4. Inside test piggy-backs on
   // dx/dy subtractor upper bits.
   // ---------------------------------------------------------------
-  wire [9:0] dx0 = pix_x - pos_x0;
-  wire [9:0] dx1 = pix_x - pos_x1;
-  wire [9:0] dx2 = pix_x - pos_x2;
-  wire [9:0] dy0 = pix_y - pos_y0;
-  wire [9:0] dy1 = pix_y - pos_y1;
-  wire [9:0] dy2 = pix_y - pos_y2;
+  wire [9:0] dx0 = pix_x - {1'b0, pos_x0};
+  wire [9:0] dx1 = pix_x - {1'b0, pos_x1};
+  wire [9:0] dx2 = pix_x - {1'b0, pos_x2};
+  wire [9:0] dy0 = pix_y - {1'b0, pos_y0};
+  wire [9:0] dy1 = pix_y - {1'b0, pos_y1};
+  wire [9:0] dy2 = pix_y - {1'b0, pos_y2};
 
   wire in0 = (dx0[9:7] == 3'd0) && (dy0[9:4] == 6'd0);
   wire in1 = (dx1[9:7] == 3'd0) && (dy1[9:4] == 6'd0);
@@ -197,41 +199,41 @@ module tt_um_vga_yusefkarim (
     if (~rst_n) begin
       frame_counter <= 6'd0;
 
-      pos_x0 <= 10'd40;  pos_y0 <= 10'd60;
-      dir_x0 <= 1'b1;    dir_y0 <= 1'b1;   color0 <= 3'd0;
+      pos_x0 <= 9'd40;  pos_y0 <= 9'd60;
+      dir_x0 <= 1'b1;   dir_y0 <= 1'b1;   color0 <= 3'd0;
 
-      pos_x1 <= 10'd300; pos_y1 <= 10'd180;
-      dir_x1 <= 1'b0;    dir_y1 <= 1'b1;   color1 <= 3'd2;
+      pos_x1 <= 9'd300; pos_y1 <= 9'd180;
+      dir_x1 <= 1'b0;   dir_y1 <= 1'b1;   color1 <= 3'd2;
 
-      pos_x2 <= 10'd180; pos_y2 <= 10'd360;
-      dir_x2 <= 1'b1;    dir_y2 <= 1'b0;   color2 <= 3'd5;
+      pos_x2 <= 9'd180; pos_y2 <= 9'd360;
+      dir_x2 <= 1'b1;   dir_y2 <= 1'b0;   color2 <= 3'd5;
     end else begin
       if (frame_tick) begin
         frame_counter <= frame_counter + 1'b1;
 
-        // Bouncer 0 (16 px tall)
-        pos_x0 <= pos_x0 + (dir_x0 ? 10'd1 : -10'd1);
-        pos_y0 <= pos_y0 + (dir_y0 ? 10'd1 : -10'd1);
-        if (pos_x0 == 10'd1            && !dir_x0) begin dir_x0 <= 1'b1; color0 <= color0 + 1'b1; end
-        if (pos_x0 == DISPLAY_WIDTH  - MSG_W       - 10'd1 && dir_x0) begin dir_x0 <= 1'b0; color0 <= color0 + 1'b1; end
-        if (pos_y0 == 10'd1            && !dir_y0) begin dir_y0 <= 1'b1; color0 <= color0 + 1'b1; end
-        if (pos_y0 == DISPLAY_HEIGHT - MSG_H - 10'd1 && dir_y0) begin dir_y0 <= 1'b0; color0 <= color0 + 1'b1; end
+        // Bouncer 0
+        pos_x0 <= pos_x0 + (dir_x0 ? 9'd1 : -9'd1);
+        pos_y0 <= pos_y0 + (dir_y0 ? 9'd1 : -9'd1);
+        if (pos_x0 == 9'd1   && !dir_x0) begin dir_x0 <= 1'b1; color0 <= color0 + 1'b1; end
+        if (pos_x0 == 9'd511 &&  dir_x0) begin dir_x0 <= 1'b0; color0 <= color0 + 1'b1; end
+        if (pos_y0 == 9'd1   && !dir_y0) begin dir_y0 <= 1'b1; color0 <= color0 + 1'b1; end
+        if (pos_y0 == 9'd463 &&  dir_y0) begin dir_y0 <= 1'b0; color0 <= color0 + 1'b1; end
 
-        // Bouncer 1 (16 px tall)
-        pos_x1 <= pos_x1 + (dir_x1 ? 10'd1 : -10'd1);
-        pos_y1 <= pos_y1 + (dir_y1 ? 10'd1 : -10'd1);
-        if (pos_x1 == 10'd1            && !dir_x1) begin dir_x1 <= 1'b1; color1 <= color1 + 1'b1; end
-        if (pos_x1 == DISPLAY_WIDTH  - MSG_W       - 10'd1 && dir_x1) begin dir_x1 <= 1'b0; color1 <= color1 + 1'b1; end
-        if (pos_y1 == 10'd1            && !dir_y1) begin dir_y1 <= 1'b1; color1 <= color1 + 1'b1; end
-        if (pos_y1 == DISPLAY_HEIGHT - MSG_H - 10'd1 && dir_y1) begin dir_y1 <= 1'b0; color1 <= color1 + 1'b1; end
+        // Bouncer 1
+        pos_x1 <= pos_x1 + (dir_x1 ? 9'd1 : -9'd1);
+        pos_y1 <= pos_y1 + (dir_y1 ? 9'd1 : -9'd1);
+        if (pos_x1 == 9'd1   && !dir_x1) begin dir_x1 <= 1'b1; color1 <= color1 + 1'b1; end
+        if (pos_x1 == 9'd511 &&  dir_x1) begin dir_x1 <= 1'b0; color1 <= color1 + 1'b1; end
+        if (pos_y1 == 9'd1   && !dir_y1) begin dir_y1 <= 1'b1; color1 <= color1 + 1'b1; end
+        if (pos_y1 == 9'd463 &&  dir_y1) begin dir_y1 <= 1'b0; color1 <= color1 + 1'b1; end
 
-        // Bouncer 2 (32 px tall, full-height URL)
-        pos_x2 <= pos_x2 + (dir_x2 ? 10'd1 : -10'd1);
-        pos_y2 <= pos_y2 + (dir_y2 ? 10'd1 : -10'd1);
-        if (pos_x2 == 10'd1            && !dir_x2) begin dir_x2 <= 1'b1; color2 <= color2 + 1'b1; end
-        if (pos_x2 == DISPLAY_WIDTH  - MSG_W       - 10'd1 && dir_x2) begin dir_x2 <= 1'b0; color2 <= color2 + 1'b1; end
-        if (pos_y2 == 10'd1            && !dir_y2) begin dir_y2 <= 1'b1; color2 <= color2 + 1'b1; end
-        if (pos_y2 == DISPLAY_HEIGHT - MSG_H - 10'd1 && dir_y2) begin dir_y2 <= 1'b0; color2 <= color2 + 1'b1; end
+        // Bouncer 2
+        pos_x2 <= pos_x2 + (dir_x2 ? 9'd1 : -9'd1);
+        pos_y2 <= pos_y2 + (dir_y2 ? 9'd1 : -9'd1);
+        if (pos_x2 == 9'd1   && !dir_x2) begin dir_x2 <= 1'b1; color2 <= color2 + 1'b1; end
+        if (pos_x2 == 9'd511 &&  dir_x2) begin dir_x2 <= 1'b0; color2 <= color2 + 1'b1; end
+        if (pos_y2 == 9'd1   && !dir_y2) begin dir_y2 <= 1'b1; color2 <= color2 + 1'b1; end
+        if (pos_y2 == 9'd463 &&  dir_y2) begin dir_y2 <= 1'b0; color2 <= color2 + 1'b1; end
       end
     end
   end
