@@ -59,12 +59,20 @@ module tt_um_vga_yusefkarim (
   // Three bouncer state vectors. The ROM port index implicitly
   // selects which message a bouncer renders (port i reads message i).
   // ---------------------------------------------------------------
-  // Positions are bounded to 1..(DISPLAY-MSG-1), which fits in 9 bits
-  // for both X (max 511) and Y (max 463).
-  reg [8:0] pos_x0, pos_x1, pos_x2;
-  reg [8:0] pos_y0, pos_y1, pos_y2;
-  reg       dir_x0, dir_x1, dir_x2;
-  reg       dir_y0, dir_y1, dir_y2;
+  // Each bouncer keeps a single 10-bit always-incrementing counter per
+  // axis. The visible 9-bit position is a zigzag derived from the
+  // counter: when the high bit is 0 the position ramps 0->511, when
+  // it is 1 it ramps 511->0. This collapses the (pos, dir) pair, the
+  // conditional inc/dec adder, and all four boundary equality
+  // comparators into one increment + a tiny XOR-with-MSB.
+  reg [9:0] cx0, cx1, cx2;
+  reg [9:0] cy0, cy1, cy2;
+  wire [8:0] pos_x0 = cx0[8:0] ^ {9{cx0[9]}};
+  wire [8:0] pos_x1 = cx1[8:0] ^ {9{cx1[9]}};
+  wire [8:0] pos_x2 = cx2[8:0] ^ {9{cx2[9]}};
+  wire [8:0] pos_y0 = cy0[8:0] ^ {9{cy0[9]}};
+  wire [8:0] pos_y1 = cy1[8:0] ^ {9{cy1[9]}};
+  wire [8:0] pos_y2 = cy2[8:0] ^ {9{cy2[9]}};
   // Bouncer colours track position: as a sprite moves across the
   // frame, the upper bits of pos_x walk through palette indices, so
   // each crossing of a 64-pixel band shifts the colour. A constant
@@ -131,10 +139,11 @@ module tt_um_vga_yusefkarim (
   wire text1 = in1 & pixel1_raw;
   wire text2 = in2 & pixel2_raw;
 
-  // Overlap count (0..3).
-  wire [1:0] overlap = {1'b0, in0} + {1'b0, in1} + {1'b0, in2};
-  wire collide      = overlap[1];   // 2 or 3 boxes overlap
-  wire text_xor     = text0 ^ text1 ^ text2;
+  // Overlap detection: any_box = at least one bbox; collide = at least
+  // two. Direct boolean form avoids the 3-input popcount adder.
+  wire any_box  = in0 | in1 | in2;
+  wire collide  = (in0 & in1) | (in0 & in2) | (in1 & in2);
+  wire text_xor = text0 ^ text1 ^ text2;
 
   wire solo_text = text0 | text1 | text2;
   // Chip renders behind the bouncing text: a bouncer's bbox always wins,
@@ -171,7 +180,7 @@ module tt_um_vga_yusefkarim (
       pix_rgb = 6'b0;
     end else if (collide) begin
       pix_rgb = text_xor ? color_active : halo_color;
-    end else if (overlap[0]) begin
+    end else if (any_box) begin
       pix_rgb = solo_text ? color_active : 6'b0;
     end else if (chip_show) begin
       pix_rgb = color_active;
@@ -202,43 +211,18 @@ module tt_um_vga_yusefkarim (
   always @(posedge clk) begin
     if (~rst_n) begin
       frame_counter <= 6'd0;
-
-      pos_x0 <= 9'd40;  pos_y0 <= 9'd60;
-      dir_x0 <= 1'b1;   dir_y0 <= 1'b1;
-
-      pos_x1 <= 9'd300; pos_y1 <= 9'd180;
-      dir_x1 <= 1'b0;   dir_y1 <= 1'b1;
-
-      pos_x2 <= 9'd180; pos_y2 <= 9'd360;
-      dir_x2 <= 1'b1;   dir_y2 <= 1'b0;
-    end else begin
-      if (frame_tick) begin
-        frame_counter <= frame_counter + 1'b1;
-
-        // Bouncer 0
-        pos_x0 <= pos_x0 + (dir_x0 ? 9'd1 : -9'd1);
-        pos_y0 <= pos_y0 + (dir_y0 ? 9'd1 : -9'd1);
-        if (pos_x0 == 9'd1   && !dir_x0) begin dir_x0 <= 1'b1; end
-        if (pos_x0 == 9'd511 &&  dir_x0) begin dir_x0 <= 1'b0; end
-        if (pos_y0 == 9'd1   && !dir_y0) begin dir_y0 <= 1'b1; end
-        if (pos_y0 == 9'd463 &&  dir_y0) begin dir_y0 <= 1'b0; end
-
-        // Bouncer 1
-        pos_x1 <= pos_x1 + (dir_x1 ? 9'd1 : -9'd1);
-        pos_y1 <= pos_y1 + (dir_y1 ? 9'd1 : -9'd1);
-        if (pos_x1 == 9'd1   && !dir_x1) begin dir_x1 <= 1'b1; end
-        if (pos_x1 == 9'd511 &&  dir_x1) begin dir_x1 <= 1'b0; end
-        if (pos_y1 == 9'd1   && !dir_y1) begin dir_y1 <= 1'b1; end
-        if (pos_y1 == 9'd463 &&  dir_y1) begin dir_y1 <= 1'b0; end
-
-        // Bouncer 2
-        pos_x2 <= pos_x2 + (dir_x2 ? 9'd1 : -9'd1);
-        pos_y2 <= pos_y2 + (dir_y2 ? 9'd1 : -9'd1);
-        if (pos_x2 == 9'd1   && !dir_x2) begin dir_x2 <= 1'b1; end
-        if (pos_x2 == 9'd511 &&  dir_x2) begin dir_x2 <= 1'b0; end
-        if (pos_y2 == 9'd1   && !dir_y2) begin dir_y2 <= 1'b1; end
-        if (pos_y2 == 9'd463 &&  dir_y2) begin dir_y2 <= 1'b0; end
-      end
+      // Stagger initial counter values so the three bouncers don't
+      // walk in lockstep. High bit picks initial direction; the low
+      // 9 bits set starting position (when high bit is 0, that IS
+      // the visible pos; when high bit is 1, visible pos = ~low9).
+      cx0 <= 10'h028;  cy0 <= 10'h03C;  // pos (40, 60), going +,+
+      cx1 <= 10'h2D3;  cy1 <= 10'h0B4;  // pos (300, 180), going -,+
+      cx2 <= 10'h0B4;  cy2 <= 10'h297;  // pos (180, 360), going +,-
+    end else if (frame_tick) begin
+      frame_counter <= frame_counter + 1'b1;
+      cx0 <= cx0 + 1'b1;  cy0 <= cy0 + 1'b1;
+      cx1 <= cx1 + 1'b1;  cy1 <= cy1 + 1'b1;
+      cx2 <= cx2 + 1'b1;  cy2 <= cy2 + 1'b1;
     end
   end
 
